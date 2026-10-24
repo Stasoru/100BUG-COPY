@@ -1,17 +1,17 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatDateTime } from "@/lib/format";
 import { listMembers } from "@/lib/members";
+import { requireScope } from "@/lib/scope";
 import { assignConversation, sendMessage, setConversationStatus } from "../actions";
 import { MessageComposer } from "./composer";
 
 export default async function ConversationPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const user = await requireUser();
+  const { user, scope } = await requireScope();
   const conversation = await db.conversation.findFirst({
-    where: { id, companyId: user.companyId },
+    where: { ...scope.conversation(), id },
     include: {
       contact: { include: { deals: { where: { status: "OPEN" }, include: { stage: true } } } },
       channel: { select: { name: true } },

@@ -3,20 +3,21 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { formString } from "@/lib/format";
+import { formString, parseLocalDateTime } from "@/lib/format";
 import { memberIdOrNull } from "@/lib/members";
+import { requireScope } from "@/lib/scope";
 
 export async function createTask(form: FormData) {
-  const user = await requireUser();
+  const { user, scope } = await requireScope();
   const title = formString(form, "title");
   if (!title) return;
   const dealId = formString(form, "dealId") || null;
   let contactId = formString(form, "contactId") || null;
   if (dealId) {
-    const deal = await db.deal.findFirst({ where: { id: dealId, companyId: user.companyId } });
+    const deal = await db.deal.findFirst({ where: { ...scope.deal(), id: dealId } });
     if (!deal) throw new Error("Negócio não encontrado");
     contactId = deal.contactId;
-  } else if (contactId && !(await db.contact.findFirst({ where: { id: contactId, companyId: user.companyId } }))) {
+  } else if (contactId && !(await db.contact.findFirst({ where: { ...scope.contact(), id: contactId } }))) {
     throw new Error("Contato não encontrado");
   }
   const due = formString(form, "dueAt");
@@ -24,7 +25,7 @@ export async function createTask(form: FormData) {
     data: {
       companyId: user.companyId,
       title,
-      dueAt: due ? new Date(due) : null,
+      dueAt: parseLocalDateTime(due),
       assigneeId: (await memberIdOrNull(user.companyId, formString(form, "assigneeId"))) ?? user.userId,
       dealId,
       contactId,

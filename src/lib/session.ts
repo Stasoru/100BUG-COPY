@@ -13,7 +13,7 @@ async function secret() {
   if (value && value.length >= 32) return new TextEncoder().encode(value);
   const fallback = process.env.DATABASE_URL;
   if (!fallback) throw new Error("Set SESSION_SECRET (32+ characters) or DATABASE_URL");
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`fluxo-session:${fallback}`));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`roda-session:${fallback}`));
   return new Uint8Array(digest);
 }
 

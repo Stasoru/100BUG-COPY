@@ -4,10 +4,10 @@ import { ContactFields } from "@/components/contact-form";
 import { PageHeader } from "@/components/page-header";
 import { TaskForm, TaskList } from "@/components/task-list";
 import { Timeline } from "@/components/timeline";
-import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatMoney } from "@/lib/format";
 import { listMembers } from "@/lib/members";
+import { requireScope } from "@/lib/scope";
 import { createDeal } from "../../pipelines/actions";
 import { createTask } from "../../tasks/actions";
 import { startConversation } from "../../inbox/actions";
@@ -15,11 +15,11 @@ import { addContactNote, deleteContact, updateContact } from "../actions";
 
 export default async function ContactPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const user = await requireUser();
+  const { user, scope } = await requireScope();
   const contact = await db.contact.findFirst({
-    where: { id, companyId: user.companyId },
+    where: { ...scope.contact(), id },
     include: {
-      deals: { include: { stage: true, pipeline: true }, orderBy: { createdAt: "desc" } },
+      deals: { where: scope.deal(), include: { stage: true, pipeline: true }, orderBy: { createdAt: "desc" } },
       tasks: { include: { assignee: true }, orderBy: [{ doneAt: { sort: "asc", nulls: "first" } }, { dueAt: "asc" }] },
       activities: { include: { user: true }, orderBy: { createdAt: "desc" }, take: 100 },
       conversations: { select: { id: true } },

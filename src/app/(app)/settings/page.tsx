@@ -4,22 +4,47 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatMoney } from "@/lib/format";
 import { listMembers } from "@/lib/members";
-import { addChannel, addMember, addProduct, deleteChannel, deleteProduct, removeMember, renameCompany } from "./actions";
+import {
+  addChannel,
+  addMember,
+  addProduct,
+  createTeam,
+  deleteChannel,
+  deleteProduct,
+  deleteTeam,
+  removeMember,
+  renameCompany,
+  updateMember,
+  updateProfile,
+} from "./actions";
 
-const ROLE_LABEL = { ADMIN: "Administrador", SELLER: "Vendedor" } as const;
+
 
 export default async function SettingsPage() {
   const user = await requireUser();
+  const me = await db.user.findUniqueOrThrow({ where: { id: user.userId } });
+  const profile = (
+    <section className="card space-y-3">
+      <h2 className="font-semibold">Meu perfil</h2>
+      <form action={updateProfile} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+        <input className="input" name="name" defaultValue={me.name} required />
+        <input className="input" name="phone" defaultValue={me.phone ?? ""} placeholder="Seu WhatsApp (recebe os avisos de lead)" />
+        <button className="btn-secondary">Salvar</button>
+      </form>
+    </section>
+  );
   if (user.role !== "ADMIN") {
     return (
-      <div>
+      <div className="space-y-4">
         <PageHeader title="Configurações" />
-        <p className="text-sm text-slate-600">Só administradores podem alterar as configurações da empresa.</p>
+        {profile}
+        <p className="text-sm text-slate-600">As demais configurações da empresa ficam com os administradores.</p>
       </div>
     );
   }
-  const [members, products, channels] = await Promise.all([
+  const [members, teams, products, channels] = await Promise.all([
     listMembers(user.companyId),
+    db.team.findMany({ where: { companyId: user.companyId }, orderBy: { name: "asc" } }),
     db.product.findMany({ where: { companyId: user.companyId }, orderBy: { name: "asc" } }),
     db.channel.findMany({ where: { companyId: user.companyId }, orderBy: { createdAt: "asc" } }),
   ]);
@@ -29,6 +54,7 @@ export default async function SettingsPage() {
   return (
     <div className="space-y-4">
       <PageHeader title="Configurações" />
+      {profile}
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="card space-y-3">
           <h2 className="font-semibold">Empresa</h2>
@@ -39,30 +65,66 @@ export default async function SettingsPage() {
         </section>
 
         <section className="card space-y-3">
-          <h2 className="font-semibold">Equipe</h2>
-          <ul className="divide-y divide-slate-100 text-sm">
+          <h2 className="font-semibold">Equipes</h2>
+          <p className="text-xs text-slate-500">
+            O gestor vê os leads e negócios da equipe dele e os que estão sem responsável. O vendedor vê só os dele.
+          </p>
+          <ul className="flex flex-wrap gap-2 text-sm">
+            {teams.map((t) => (
+              <li key={t.id} className="flex items-center gap-2 rounded border border-slate-200 px-2 py-1">
+                {t.name}
+                <form action={deleteTeam.bind(null, t.id)}>
+                  <button className="text-xs text-red-600 hover:underline">excluir</button>
+                </form>
+              </li>
+            ))}
+            {!teams.length && <li className="text-slate-500">Nenhuma equipe ainda.</li>}
+          </ul>
+          <form action={createTeam} className="flex gap-2">
+            <input className="input" name="name" placeholder="Nome da equipe" required />
+            <button className="btn-secondary">Criar equipe</button>
+          </form>
+        </section>
+
+        <section className="card space-y-3 lg:col-span-2">
+          <h2 className="font-semibold">Pessoas</h2>
+          <ul className="space-y-2 text-sm">
             {members.map((m) => (
-              <li key={m.id} className="flex items-center justify-between py-2">
-                <span>
-                  {m.name} <span className="text-slate-500">· {m.email} · {ROLE_LABEL[m.role]}</span>
-                </span>
-                {m.id !== user.userId && (
-                  <form action={removeMember.bind(null, m.id)}>
-                    <button className="text-xs text-red-600 hover:underline">remover</button>
-                  </form>
-                )}
+              <li key={m.id}>
+                <form action={updateMember.bind(null, m.id)} className="flex flex-wrap items-center gap-2 rounded border border-slate-200 p-2">
+                  <span className="min-w-40 flex-1">
+                    {m.name} <span className="text-slate-500">· {m.email}</span>
+                  </span>
+                  <input className="input w-40 py-1" name="phone" defaultValue={m.phone ?? ""} placeholder="WhatsApp" />
+                  <select className="input w-36 py-1" name="role" defaultValue={m.role}>
+                    <option value="SELLER">Vendedor</option>
+                    <option value="MANAGER">Gestor</option>
+                    <option value="ADMIN">Administrador</option>
+                  </select>
+                  <select className="input w-36 py-1" name="teamId" defaultValue={m.teamId ?? ""}>
+                    <option value="">Sem equipe</option>
+                    {teams.map((t) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                  <button className="btn-secondary py-1">Salvar</button>
+                  {m.id !== user.userId && (
+                    <button formAction={removeMember.bind(null, m.id)} className="text-xs text-red-600 hover:underline">remover</button>
+                  )}
+                </form>
               </li>
             ))}
           </ul>
-          <form action={addMember} className="grid gap-2 sm:grid-cols-2">
+          <form action={addMember} className="grid gap-2 sm:grid-cols-5">
             <input className="input" name="name" placeholder="Nome" required />
             <input className="input" name="email" type="email" placeholder="E-mail" required />
             <input className="input" name="password" type="password" placeholder="Senha inicial (8+)" />
             <select className="input" name="role" defaultValue="SELLER">
               <option value="SELLER">Vendedor</option>
+              <option value="MANAGER">Gestor</option>
               <option value="ADMIN">Administrador</option>
             </select>
-            <button className="btn sm:col-span-2">Adicionar membro</button>
+            <button className="btn">Adicionar pessoa</button>
           </form>
         </section>
 

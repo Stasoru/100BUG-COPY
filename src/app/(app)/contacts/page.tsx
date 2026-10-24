@@ -2,24 +2,25 @@ import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { ContactFields } from "@/components/contact-form";
 import { PageHeader } from "@/components/page-header";
-import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatDate } from "@/lib/format";
 import { listMembers } from "@/lib/members";
+import { requireScope } from "@/lib/scope";
 import { createContact } from "./actions";
 
 export default async function ContactsPage({ searchParams }: { searchParams: Promise<{ q?: string; tag?: string }> }) {
-  const user = await requireUser();
+  const { user, scope } = await requireScope();
   const { q = "", tag = "" } = await searchParams;
-  const where: Prisma.ContactWhereInput = { companyId: user.companyId };
+  const filters: Prisma.ContactWhereInput[] = [scope.contact()];
   if (q) {
-    where.OR = [
+    filters.push({ OR: [
       { name: { contains: q, mode: "insensitive" } },
       { email: { contains: q, mode: "insensitive" } },
       { phone: { contains: q.replace(/\D/g, "") || q } },
-    ];
+    ] });
   }
-  if (tag) where.tags = { has: tag.toLowerCase() };
+  if (tag) filters.push({ tags: { has: tag.toLowerCase() } });
+  const where: Prisma.ContactWhereInput = { AND: filters };
   const [contacts, members] = await Promise.all([
     db.contact.findMany({ where, include: { owner: true }, orderBy: { createdAt: "desc" }, take: 200 }),
     listMembers(user.companyId),

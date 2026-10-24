@@ -9,6 +9,7 @@ datasource db {
 
 enum Role {
   ADMIN
+  MANAGER
   SELLER
 }
 
@@ -28,11 +29,33 @@ enum ConversationStatus {
   CLOSED
 }
 
+enum AssignmentStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+enum DocumentKind {
+  PROPOSAL
+  CONTRACT
+}
+
+enum ProposalStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+}
+
 model Company {
-  id            String         @id @default(cuid())
+  id            String             @id @default(cuid())
   name          String
-  createdAt     DateTime       @default(now())
+  // Minutes a seller has to accept a lead before it moves on. 0 = assigned without acceptance.
+  acceptMinutes Int                @default(0)
+  createdAt     DateTime           @default(now())
   memberships   Membership[]
+  teams         Team[]
   contacts      Contact[]
   pipelines     Pipeline[]
   deals         Deal[]
@@ -41,20 +64,32 @@ model Company {
   channels      Channel[]
   conversations Conversation[]
   activities    Activity[]
+  leadSources   LeadSource[]
+  queueMembers  QueueMember[]
+  assignments   LeadAssignment[]
+  templates     DocumentTemplate[]
+  proposals     Proposal[]
+  visits        Visit[]
 }
 
 model User {
-  id            String         @id @default(cuid())
+  id            String           @id @default(cuid())
   name          String
-  email         String         @unique
+  email         String           @unique
+  // WhatsApp number that receives new-lead alerts.
+  phone         String?
   passwordHash  String
-  createdAt     DateTime       @default(now())
+  createdAt     DateTime         @default(now())
   memberships   Membership[]
   ownedContacts Contact[]
   ownedDeals    Deal[]
   tasks         Task[]
   conversations Conversation[]
   activities    Activity[]
+  queueMembers  QueueMember[]
+  assignments   LeadAssignment[]
+  proposals     Proposal[]
+  visits        Visit[]
 }
 
 model Membership {
@@ -62,10 +97,21 @@ model Membership {
   role      Role    @default(SELLER)
   userId    String
   companyId String
+  teamId    String?
   user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  team      Team?   @relation(fields: [teamId], references: [id], onDelete: SetNull)
 
   @@unique([userId, companyId])
+}
+
+model Team {
+  id          String       @id @default(cuid())
+  companyId   String
+  name        String
+  createdAt   DateTime     @default(now())
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  memberships Membership[]
 }
 
 model Contact {
@@ -84,19 +130,21 @@ model Contact {
   tasks         Task[]
   conversations Conversation[]
   activities    Activity[]
+  visits        Visit[]
 
   @@unique([companyId, phone])
   @@index([companyId, createdAt])
 }
 
 model Pipeline {
-  id        String   @id @default(cuid())
-  companyId String
-  name      String
-  createdAt DateTime @default(now())
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  stages    Stage[]
-  deals     Deal[]
+  id          String       @id @default(cuid())
+  companyId   String
+  name        String
+  createdAt   DateTime     @default(now())
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stages      Stage[]
+  deals       Deal[]
+  leadSources LeadSource[]
 }
 
 model Stage {
@@ -111,29 +159,38 @@ model Stage {
 }
 
 model Deal {
-  id             String         @id @default(cuid())
+  id             String           @id @default(cuid())
   companyId      String
   pipelineId     String
   stageId        String
   contactId      String
   ownerId        String?
+  leadSourceId   String?
+  campaign       String?
   title          String
-  value          Decimal        @default(0) @db.Decimal(12, 2)
-  status         DealStatus     @default(OPEN)
+  value          Decimal          @default(0) @db.Decimal(12, 2)
+  status         DealStatus       @default(OPEN)
   lostReason     String?
-  stageEnteredAt DateTime       @default(now())
+  stageEnteredAt DateTime         @default(now())
+  // First time the seller acted on the deal (message, note, stage move, visit, proposal).
+  firstContactAt DateTime?
   closedAt       DateTime?
-  createdAt      DateTime       @default(now())
-  company        Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  pipeline       Pipeline       @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
-  stage          Stage          @relation(fields: [stageId], references: [id], onDelete: Restrict)
-  contact        Contact        @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  owner          User?          @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  createdAt      DateTime         @default(now())
+  company        Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  pipeline       Pipeline         @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  stage          Stage            @relation(fields: [stageId], references: [id], onDelete: Restrict)
+  contact        Contact          @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  owner          User?            @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  leadSource     LeadSource?      @relation(fields: [leadSourceId], references: [id], onDelete: SetNull)
   products       DealProduct[]
   tasks          Task[]
   activities     Activity[]
+  assignments    LeadAssignment[]
+  proposals      Proposal[]
+  visits         Visit[]
 
   @@index([companyId, pipelineId, status])
+  @@index([companyId, createdAt])
 }
 
 model Product {
@@ -235,4 +292,109 @@ model Activity {
 
   @@index([contactId, createdAt])
   @@index([dealId, createdAt])
+}
+
+// Where leads come from (a Facebook form via Zapier/Make, a listing portal, the website).
+// Each source has a secret URL that receives leads.
+model LeadSource {
+  id         String   @id @default(cuid())
+  companyId  String
+  name       String
+  token      String   @unique
+  pipelineId String
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  pipeline   Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  deals      Deal[]
+}
+
+// A seller taking part in the lead rotation.
+model QueueMember {
+  id           String    @id @default(cuid())
+  companyId    String
+  userId       String
+  weight       Int       @default(1)
+  active       Boolean   @default(true)
+  // Lead sources this seller serves. Empty = all sources.
+  sourceIds    String[]
+  served       Int       @default(0)
+  lastServedAt DateTime?
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, userId])
+}
+
+// One offer of a lead to a seller.
+model LeadAssignment {
+  id          String           @id @default(cuid())
+  companyId   String
+  dealId      String
+  userId      String
+  status      AssignmentStatus @default(PENDING)
+  expiresAt   DateTime?
+  respondedAt DateTime?
+  createdAt   DateTime         @default(now())
+  company     Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  deal        Deal             @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status, expiresAt])
+  @@index([dealId])
+}
+
+model DocumentTemplate {
+  id        String       @id @default(cuid())
+  companyId String
+  kind      DocumentKind
+  name      String
+  body      String
+  createdAt DateTime     @default(now())
+  company   Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+// A proposal or contract generated for a deal. The body is a snapshot, editable until sent.
+model Proposal {
+  id          String         @id @default(cuid())
+  companyId   String
+  dealId      String
+  kind        DocumentKind
+  number      Int
+  title       String
+  body        String
+  total       Decimal        @default(0) @db.Decimal(12, 2)
+  status      ProposalStatus @default(DRAFT)
+  // Secret for the public link the client opens.
+  token       String         @unique
+  signerName  String?
+  createdById String?
+  sentAt      DateTime?
+  respondedAt DateTime?
+  createdAt   DateTime       @default(now())
+  company     Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  deal        Deal           @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  createdBy   User?          @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, kind, number])
+}
+
+model Visit {
+  id          String    @id @default(cuid())
+  companyId   String
+  contactId   String
+  dealId      String?
+  userId      String?
+  startsAt    DateTime
+  durationMin Int       @default(60)
+  place       String?
+  notes       String?
+  doneAt      DateTime?
+  createdAt   DateTime  @default(now())
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contact     Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  deal        Deal?     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, startsAt])
 }

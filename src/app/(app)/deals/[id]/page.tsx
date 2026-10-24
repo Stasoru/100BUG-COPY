@@ -3,10 +3,10 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { TaskForm, TaskList } from "@/components/task-list";
 import { Timeline } from "@/components/timeline";
-import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatMoney } from "@/lib/format";
 import { listMembers } from "@/lib/members";
+import { requireScope } from "@/lib/scope";
 import { addDealNote, addDealProduct, moveDeal, removeDealProduct, setDealStatus, updateDeal } from "../../pipelines/actions";
 import { createTask } from "../../tasks/actions";
 
@@ -15,9 +15,9 @@ const STATUS_STYLE = { OPEN: "bg-slate-100 text-slate-700", WON: "bg-emerald-100
 
 export default async function DealPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const user = await requireUser();
+  const { user, scope } = await requireScope();
   const deal = await db.deal.findFirst({
-    where: { id, companyId: user.companyId },
+    where: { ...scope.deal(), id },
     include: {
       contact: true,
       pipeline: { include: { stages: { orderBy: { position: "asc" } } } },

@@ -1,14 +1,14 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { AutoRefresh } from "@/components/auto-refresh";
-import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatDateTime } from "@/lib/format";
+import { requireScope } from "@/lib/scope";
 import { InboxFilters } from "./filters";
 
 export default async function InboxLayout({ children }: { children: React.ReactNode }) {
-  const user = await requireUser();
-  const where: Prisma.ConversationWhereInput = { companyId: user.companyId, status: "OPEN" };
+  const { user, scope } = await requireScope();
+  const where: Prisma.ConversationWhereInput = { ...scope.conversation(), status: "OPEN" };
   const conversations = await db.conversation.findMany({
     where,
     include: {
