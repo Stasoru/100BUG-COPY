@@ -2,18 +2,18 @@ import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { PageHeader } from "@/components/page-header";
 import { TaskForm, TaskList } from "@/components/task-list";
-import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { listMembers } from "@/lib/members";
+import { requireScope } from "@/lib/scope";
 import { createTask } from "./actions";
 
 const FILTERS = { mine: "Minhas", all: "Todas", done: "Concluídas" } as const;
 
 export default async function TasksPage({ searchParams }: { searchParams: Promise<{ f?: string }> }) {
-  const user = await requireUser();
+  const { user, scope } = await requireScope();
   const { f } = await searchParams;
   const filter = (f && f in FILTERS ? f : "mine") as keyof typeof FILTERS;
-  const where: Prisma.TaskWhereInput = { companyId: user.companyId, doneAt: filter === "done" ? { not: null } : null };
+  const where: Prisma.TaskWhereInput = { ...scope.task(), doneAt: filter === "done" ? { not: null } : null };
   if (filter === "mine") where.assigneeId = user.userId;
 
   const [tasks, members] = await Promise.all([

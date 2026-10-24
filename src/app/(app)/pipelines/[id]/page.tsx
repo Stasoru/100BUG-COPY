@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { KanbanBoard, type BoardStage } from "@/components/kanban-board";
-import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatMoney } from "@/lib/format";
+import { requireScope } from "@/lib/scope";
 import { createDeal } from "../actions";
 
 const DAY = 86_400_000;
@@ -10,7 +10,7 @@ const DAY = 86_400_000;
 export default async function PipelinePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ status?: string }> }) {
   const { id } = await params;
   const { status } = await searchParams;
-  const user = await requireUser();
+  const { user, scope } = await requireScope();
   const closedStatus = status === "won" ? "WON" : status === "lost" ? "LOST" : null;
 
   const stages = await db.stage.findMany({
@@ -18,7 +18,7 @@ export default async function PipelinePage({ params, searchParams }: { params: P
     orderBy: { position: "asc" },
     include: {
       deals: {
-        where: { status: "OPEN" },
+        where: { ...scope.deal(), status: "OPEN" },
         orderBy: { stageEnteredAt: "desc" },
         include: { contact: { select: { name: true } }, owner: { select: { name: true } } },
       },
@@ -40,7 +40,7 @@ export default async function PipelinePage({ params, searchParams }: { params: P
 
   const closed = closedStatus
     ? await db.deal.findMany({
-        where: { pipelineId: id, companyId: user.companyId, status: closedStatus },
+        where: { ...scope.deal(), pipelineId: id, status: closedStatus },
         orderBy: { closedAt: "desc" },
         include: { contact: { select: { name: true } } },
         take: 100,

@@ -4,10 +4,11 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin, requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { formString, normalizePhone } from "@/lib/format";
+import { formString, normalizePhone, parseMoney } from "@/lib/format";
 import { memberIdOrNull } from "@/lib/members";
-
-const DEFAULT_STAGES = ["Novo lead", "Contato feito", "Proposta", "Negociação"];
+import { pipelineTemplate } from "@/lib/pipeline-templates";
+import { requireScope } from "@/lib/scope";
+import { markFirstContact } from "@/lib/distribution";
 
 async function ownedPipeline(companyId: string, pipelineId: string) {
   const pipeline = await db.pipeline.findFirst({ where: { id: pipelineId, companyId } });
@@ -15,29 +16,25 @@ async function ownedPipeline(companyId: string, pipelineId: string) {
   return pipeline;
 }
 
-async function ownedDeal(companyId: string, dealId: string) {
-  const deal = await db.deal.findFirst({ where: { id: dealId, companyId }, include: { stage: true } });
+// A deal the signed-in user is allowed to see.
+async function ownedDeal(dealId: string) {
+  const { scope } = await requireScope();
+  const deal = await db.deal.findFirst({ where: { ...scope.deal(), id: dealId }, include: { stage: true } });
   if (!deal) throw new Error("Negócio não encontrado");
   return deal;
-}
-
-function parseMoney(input: string) {
-  // Accepts "1.234,56", "1234.56" and "1234".
-  const normalized = input.includes(",") ? input.replace(/\./g, "").replace(",", ".") : input;
-  const value = Number(normalized);
-  return Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
 // ---------- Pipelines and stages ----------
 
 export async function createPipeline(form: FormData) {
   const user = await requireAdmin();
-  const name = formString(form, "name") || "Novo funil";
+  const template = pipelineTemplate(formString(form, "template"));
+  const name = formString(form, "name") || template.name;
   const pipeline = await db.pipeline.create({
     data: {
       companyId: user.companyId,
       name,
-      stages: { create: DEFAULT_STAGES.map((stage, position) => ({ name: stage, position })) },
+      stages: { create: template.stages.map((stage, position) => ({ name: stage, position })) },
     },
   });
   redirect(`/pipelines/${pipeline.id}/settings`);
@@ -153,11 +150,12 @@ export async function createDeal(form: FormData) {
 
 export async function moveDeal(dealId: string, stageId: string) {
   const user = await requireUser();
-  const deal = await ownedDeal(user.companyId, dealId);
+  const deal = await ownedDeal(dealId);
   if (deal.stageId === stageId) return;
   const stage = await db.stage.findFirst({ where: { id: stageId, pipelineId: deal.pipelineId } });
   if (!stage) throw new Error("Etapa inválida");
   await db.deal.update({ where: { id: dealId }, data: { stageId, stageEnteredAt: new Date() } });
+  await markFirstContact(dealId);
   await db.activity.create({
     data: {
       companyId: user.companyId,
@@ -173,7 +171,7 @@ export async function moveDeal(dealId: string, stageId: string) {
 
 export async function setDealStatus(dealId: string, status: "OPEN" | "WON" | "LOST", form?: FormData) {
   const user = await requireUser();
-  const deal = await ownedDeal(user.companyId, dealId);
+  const deal = await ownedDeal(dealId);
   const lostReason = status === "LOST" ? formString(form ?? new FormData(), "lostReason") || null : null;
   await db.deal.update({
     where: { id: dealId },
@@ -189,7 +187,7 @@ export async function setDealStatus(dealId: string, status: "OPEN" | "WON" | "LO
 
 export async function updateDeal(dealId: string, form: FormData) {
   const user = await requireUser();
-  await ownedDeal(user.companyId, dealId);
+  await ownedDeal(dealId);
   await db.deal.update({
     where: { id: dealId },
     data: {
@@ -203,16 +201,17 @@ export async function updateDeal(dealId: string, form: FormData) {
 
 export async function addDealNote(dealId: string, form: FormData) {
   const user = await requireUser();
-  const deal = await ownedDeal(user.companyId, dealId);
+  const deal = await ownedDeal(dealId);
   const text = formString(form, "text");
   if (!text) return;
   await db.activity.create({ data: { companyId: user.companyId, dealId, contactId: deal.contactId, userId: user.userId, kind: "note", text } });
+  await markFirstContact(dealId);
   revalidatePath(`/deals/${dealId}`);
 }
 
 export async function addDealProduct(dealId: string, form: FormData) {
   const user = await requireUser();
-  await ownedDeal(user.companyId, dealId);
+  await ownedDeal(dealId);
   const product = await db.product.findFirst({ where: { id: formString(form, "productId"), companyId: user.companyId } });
   if (!product) return;
   const quantity = Math.max(1, Math.floor(Number(formString(form, "quantity")) || 1));
@@ -223,7 +222,7 @@ export async function addDealProduct(dealId: string, form: FormData) {
 
 export async function removeDealProduct(dealProductId: string) {
   const user = await requireUser();
-  const item = await db.dealProduct.findFirst({ where: { id: dealProductId, deal: { companyId: user.companyId } } });
+  const item = await db.dealProduct.findFirst({ where: { id: dealProductId, deal: (await requireScope()).scope.deal() } });
   if (!item) return;
   await db.dealProduct.delete({ where: { id: item.id } });
   await syncDealValue(item.dealId);

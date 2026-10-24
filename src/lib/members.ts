@@ -3,10 +3,10 @@ import { db } from "./db";
 export async function listMembers(companyId: string) {
   const memberships = await db.membership.findMany({
     where: { companyId },
-    include: { user: { select: { id: true, name: true, email: true } } },
+    include: { user: { select: { id: true, name: true, email: true, phone: true } } },
     orderBy: { user: { name: "asc" } },
   });
-  return memberships.map((m) => ({ ...m.user, role: m.role }));
+  return memberships.map((m) => ({ ...m.user, role: m.role, teamId: m.teamId }));
 }
 
 // Returns the id only if that user belongs to the company; otherwise null.

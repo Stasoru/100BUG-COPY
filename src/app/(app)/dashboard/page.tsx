@@ -1,16 +1,16 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
-import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatMoney } from "@/lib/format";
 import { groupBy, summarize, type DealForMetrics } from "@/lib/metrics";
+import { requireScope } from "@/lib/scope";
 
 const PERIODS = { "30": "30 dias", "90": "90 dias", all: "Tudo" } as const;
 const DAY = 86_400_000;
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ p?: string; period?: string }> }) {
-  const user = await requireUser();
+  const { user, scope } = await requireScope();
   const { p, period: rawPeriod } = await searchParams;
   const period = (rawPeriod && rawPeriod in PERIODS ? rawPeriod : "30") as keyof typeof PERIODS;
   const pipelines = await db.pipeline.findMany({
@@ -24,11 +24,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const since = period === "all" ? undefined : new Date(Date.now() - Number(period) * DAY);
   const [deals, overdueTasks, waitingConversations] = await Promise.all([
     db.deal.findMany({
-      where: { companyId: user.companyId, pipelineId: pipeline.id, ...(since && { createdAt: { gte: since } }) },
+      where: { ...scope.deal(), pipelineId: pipeline.id, ...(since && { createdAt: { gte: since } }) },
       include: { contact: { select: { source: true } }, owner: { select: { name: true } } },
     }),
     db.task.count({ where: { companyId: user.companyId, assigneeId: user.userId, doneAt: null, dueAt: { lt: new Date() } } }),
-    db.conversation.count({ where: { companyId: user.companyId, status: "OPEN", messages: { some: {} } } }),
+    db.conversation.count({ where: { ...scope.conversation(), status: "OPEN", messages: { some: {} } } }),
   ]);
 
   const rows: DealForMetrics[] = deals.map((d) => ({
@@ -104,13 +104,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <h2 className="mb-3 font-semibold">Negócios abertos por etapa</h2>
         <ul className="space-y-2">
           {byStage.map((st) => (
-            <li key={st.name} className="grid grid-cols-[8rem_1fr_auto] items-center gap-3 text-sm">
+            <li key={st.name} className="grid grid-cols-[6rem_1fr_auto] items-center sm:grid-cols-[8rem_1fr_auto] gap-3 text-sm">
               <span className="truncate">{st.name}</span>
               <span className="h-5 rounded bg-slate-100">
                 <span className="block h-5 rounded bg-brand-500" style={{ width: `${(st.count / maxStage) * 100}%` }} />
               </span>
-              <span className="w-56 text-right text-xs text-slate-600">
-                {st.count} · {formatMoney(st.value)} · {st.avgDays.toFixed(1)}d em média
+              <span className="text-right text-xs text-slate-600 sm:w-56">
+                {st.count}
+                <span className="hidden sm:inline"> · {formatMoney(st.value)} · {st.avgDays.toFixed(1)}d em média</span>
               </span>
             </li>
           ))}

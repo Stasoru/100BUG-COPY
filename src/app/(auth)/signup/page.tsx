@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useActionState } from "react";
+import { PipelineTemplateSelect } from "@/components/pipeline-template-select";
 import { signup } from "../actions";
 
 export default function SignupPage() {
@@ -16,6 +17,10 @@ export default function SignupPage() {
       <div>
         <label className="label" htmlFor="company">Empresa</label>
         <input className="input" id="company" name="company" required />
+      </div>
+      <div>
+        <label className="label" htmlFor="template">Ramo (define o funil inicial)</label>
+        <PipelineTemplateSelect id="template" />
       </div>
       <div>
         <label className="label" htmlFor="email">E-mail</label>

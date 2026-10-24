@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { endSession, startSession } from "@/lib/auth";
+import { createCompany } from "@/lib/company";
 import { formString } from "@/lib/format";
 
 export type FormState = { error?: string } | undefined;
@@ -30,18 +31,8 @@ export async function signup(_: FormState, form: FormData): Promise<FormState> {
 
   const passwordHash = await bcrypt.hash(password, 10);
   const { user, company } = await db.$transaction(async (tx) => {
-    const company = await tx.company.create({ data: { name: companyName } });
     const user = await tx.user.create({ data: { name, email, passwordHash } });
-    await tx.membership.create({ data: { userId: user.id, companyId: company.id, role: "ADMIN" } });
-    await tx.pipeline.create({
-      data: {
-        companyId: company.id,
-        name: "Vendas",
-        stages: {
-          create: ["Novo lead", "Contato feito", "Proposta", "Negociação"].map((name, position) => ({ name, position })),
-        },
-      },
-    });
+    const company = await createCompany(tx, user.id, companyName, formString(form, "template"));
     return { user, company };
   });
   await startSession(user.id, company.id);

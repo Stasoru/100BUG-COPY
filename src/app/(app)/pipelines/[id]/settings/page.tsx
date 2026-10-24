@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { PipelineTemplateSelect } from "@/components/pipeline-template-select";
 import { addStage, createPipeline, deletePipeline, deleteStage, renamePipeline, renameStage, shiftStage } from "../../actions";
 
 export default async function PipelineSettings({ params }: { params: Promise<{ id: string }> }) {
@@ -54,8 +55,9 @@ export default async function PipelineSettings({ params }: { params: Promise<{ i
       <section className="space-y-4">
         <div className="card space-y-3">
           <h2 className="font-semibold">Criar outro funil</h2>
-          <form action={createPipeline} className="flex gap-2">
-            <input className="input" name="name" placeholder="Ex.: Pós-venda" required />
+          <form action={createPipeline} className="flex flex-wrap gap-2">
+            <input className="input max-w-xs" name="name" placeholder="Nome (opcional)" />
+            <PipelineTemplateSelect className="input max-w-xs" />
             <button className="btn">Criar</button>
           </form>
         </div>

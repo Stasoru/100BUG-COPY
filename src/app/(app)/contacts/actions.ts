@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formString, normalizePhone, parseTags } from "@/lib/format";
 import { memberIdOrNull } from "@/lib/members";
+import { requireScope } from "@/lib/scope";
 
 async function contactFields(companyId: string, form: FormData) {
   const name = formString(form, "name");
@@ -28,7 +29,9 @@ export async function createContact(form: FormData) {
     : null;
   // Same phone means same person: open the existing record instead of failing.
   if (existing) redirect(`/contacts/${existing.id}`);
-  const contact = await db.contact.create({ data: { ...data, companyId: user.companyId } });
+  // A seller always owns what they create, otherwise they would lose sight of it.
+  const ownerId = data.ownerId ?? (user.role === "SELLER" ? user.userId : null);
+  const contact = await db.contact.create({ data: { ...data, ownerId, companyId: user.companyId } });
   await db.activity.create({
     data: { companyId: user.companyId, contactId: contact.id, userId: user.userId, kind: "created", text: "Contato criado" },
   });
@@ -36,23 +39,23 @@ export async function createContact(form: FormData) {
 }
 
 export async function updateContact(id: string, form: FormData) {
-  const user = await requireUser();
+  const { user, scope } = await requireScope();
   const data = await contactFields(user.companyId, form);
-  await db.contact.updateMany({ where: { id, companyId: user.companyId }, data });
+  await db.contact.updateMany({ where: { ...scope.contact(), id }, data });
   revalidatePath(`/contacts/${id}`);
 }
 
 export async function addContactNote(id: string, form: FormData) {
-  const user = await requireUser();
+  const { user, scope } = await requireScope();
   const text = formString(form, "text");
-  const contact = await db.contact.findFirst({ where: { id, companyId: user.companyId } });
+  const contact = await db.contact.findFirst({ where: { ...scope.contact(), id } });
   if (!text || !contact) return;
   await db.activity.create({ data: { companyId: user.companyId, contactId: id, userId: user.userId, kind: "note", text } });
   revalidatePath(`/contacts/${id}`);
 }
 
 export async function deleteContact(id: string) {
-  const user = await requireUser();
-  await db.contact.deleteMany({ where: { id, companyId: user.companyId } });
+  const { scope } = await requireScope();
+  await db.contact.deleteMany({ where: { ...scope.contact(), id } });
   redirect("/contacts");
 }

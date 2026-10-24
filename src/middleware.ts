@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, verifySession } from "@/lib/session";
 
-const PUBLIC_PATHS = ["/login", "/signup", "/api/webhooks"];
+// Pages and files open to everyone: sign-in, webhooks, the client-facing proposal page and the app icon.
+const PUBLIC_PATHS = ["/login", "/signup", "/api/webhooks", "/api/cron", "/p/", "/manifest.webmanifest", "/icon.svg"];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

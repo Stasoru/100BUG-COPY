@@ -7,7 +7,8 @@ import { SESSION_COOKIE, sessionCookieOptions, signSession, verifySession } from
 export type CurrentUser = {
   userId: string;
   companyId: string;
-  role: "ADMIN" | "SELLER";
+  role: "ADMIN" | "MANAGER" | "SELLER";
+  teamId: string | null;
   name: string;
   companyName: string;
 };
@@ -26,6 +27,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     userId: membership.userId,
     companyId: membership.companyId,
     role: membership.role,
+    teamId: membership.teamId,
     name: membership.user.name,
     companyName: membership.company.name,
   };
@@ -40,6 +42,13 @@ export async function requireUser() {
 export async function requireAdmin() {
   const user = await requireUser();
   if (user.role !== "ADMIN") throw new Error("Apenas administradores podem fazer isso");
+  return user;
+}
+
+// Admins and team managers: run the lead queue and see their team's work.
+export async function requireManager() {
+  const user = await requireUser();
+  if (user.role === "SELLER") throw new Error("Apenas gestores e administradores podem fazer isso");
   return user;
 }
 

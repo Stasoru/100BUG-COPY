@@ -3,9 +3,9 @@
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdmin, requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { formString } from "@/lib/format";
+import { formString, normalizePhone, parseMoney } from "@/lib/format";
 
 export async function renameCompany(form: FormData) {
   const user = await requireAdmin();
@@ -19,7 +19,7 @@ export async function addMember(form: FormData) {
   const email = formString(form, "email").toLowerCase();
   const name = formString(form, "name");
   const password = formString(form, "password");
-  const role = formString(form, "role") === "ADMIN" ? "ADMIN" : "SELLER";
+  const role = parseRole(formString(form, "role"));
   if (!email || !name) throw new Error("Informe nome e e-mail");
   let member = await db.user.findUnique({ where: { email } });
   if (!member) {
@@ -34,6 +34,49 @@ export async function addMember(form: FormData) {
   revalidatePath("/settings");
 }
 
+function parseRole(input: string) {
+  return input === "ADMIN" || input === "MANAGER" ? input : "SELLER";
+}
+
+export async function updateMember(userId: string, form: FormData) {
+  const user = await requireAdmin();
+  const membership = await db.membership.findUnique({ where: { userId_companyId: { userId, companyId: user.companyId } } });
+  if (!membership) return;
+  const role = parseRole(formString(form, "role"));
+  if (membership.role === "ADMIN" && role !== "ADMIN") {
+    const admins = await db.membership.count({ where: { companyId: user.companyId, role: "ADMIN" } });
+    if (admins <= 1) throw new Error("A empresa precisa de pelo menos um administrador");
+  }
+  const team = await db.team.findFirst({ where: { id: formString(form, "teamId"), companyId: user.companyId } });
+  await db.membership.update({ where: { id: membership.id }, data: { role, teamId: team?.id ?? null } });
+  await db.user.update({ where: { id: userId }, data: { phone: normalizePhone(formString(form, "phone")) } });
+  revalidatePath("/settings");
+}
+
+export async function createTeam(form: FormData) {
+  const user = await requireAdmin();
+  const name = formString(form, "name");
+  if (name) await db.team.create({ data: { companyId: user.companyId, name } });
+  revalidatePath("/settings");
+}
+
+export async function deleteTeam(teamId: string) {
+  const user = await requireAdmin();
+  await db.team.deleteMany({ where: { id: teamId, companyId: user.companyId } });
+  revalidatePath("/settings");
+}
+
+// Anyone can set their own name and the WhatsApp number that receives lead alerts.
+export async function updateProfile(form: FormData) {
+  const user = await requireUser();
+  const name = formString(form, "name");
+  await db.user.update({
+    where: { id: user.userId },
+    data: { ...(name && { name }), phone: normalizePhone(formString(form, "phone")) },
+  });
+  revalidatePath("/", "layout");
+}
+
 export async function removeMember(userId: string) {
   const user = await requireAdmin();
   if (userId === user.userId) throw new Error("Você não pode remover a si mesmo");
@@ -44,8 +87,7 @@ export async function removeMember(userId: string) {
 export async function addProduct(form: FormData) {
   const user = await requireAdmin();
   const name = formString(form, "name");
-  const raw = formString(form, "price");
-  const price = Number(raw.includes(",") ? raw.replace(/\./g, "").replace(",", ".") : raw) || 0;
+  const price = parseMoney(formString(form, "price"));
   if (name) await db.product.create({ data: { companyId: user.companyId, name, price } });
   revalidatePath("/settings");
 }
@@ -76,5 +118,24 @@ export async function addChannel(form: FormData) {
 export async function deleteChannel(channelId: string) {
   const user = await requireAdmin();
   await db.channel.deleteMany({ where: { id: channelId, companyId: user.companyId } });
+  revalidatePath("/settings");
+}
+
+// ---------- Proposal and contract templates ----------
+
+export async function saveTemplate(templateId: string | null, form: FormData) {
+  const user = await requireAdmin();
+  const name = formString(form, "name");
+  const body = String(form.get("body") ?? "").trim();
+  const kind = formString(form, "kind") === "CONTRACT" ? "CONTRACT" : "PROPOSAL";
+  if (!name || !body) throw new Error("Informe o nome e o texto do modelo");
+  if (templateId) await db.documentTemplate.updateMany({ where: { id: templateId, companyId: user.companyId }, data: { name, body, kind } });
+  else await db.documentTemplate.create({ data: { companyId: user.companyId, name, body, kind } });
+  revalidatePath("/settings");
+}
+
+export async function deleteTemplate(templateId: string) {
+  const user = await requireAdmin();
+  await db.documentTemplate.deleteMany({ where: { id: templateId, companyId: user.companyId } });
   revalidatePath("/settings");
 }

@@ -3,11 +3,15 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { TaskForm, TaskList } from "@/components/task-list";
 import { Timeline } from "@/components/timeline";
-import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { formatMoney } from "@/lib/format";
+import { VisitForm, VisitList } from "@/components/visit-list";
+import { DEFAULT_TEMPLATES, KIND_LABEL } from "@/lib/documents";
+import { formatDateTime, formatMoney } from "@/lib/format";
+import { PROPOSAL_STATUS_LABEL, PROPOSAL_STATUS_STYLE } from "@/lib/proposal-status";
 import { listMembers } from "@/lib/members";
+import { requireScope } from "@/lib/scope";
 import { addDealNote, addDealProduct, moveDeal, removeDealProduct, setDealStatus, updateDeal } from "../../pipelines/actions";
+import { createProposal } from "../../proposals/actions";
 import { createTask } from "../../tasks/actions";
 
 const STATUS_LABEL = { OPEN: "Em aberto", WON: "Ganho", LOST: "Perdido" } as const;
@@ -15,22 +19,29 @@ const STATUS_STYLE = { OPEN: "bg-slate-100 text-slate-700", WON: "bg-emerald-100
 
 export default async function DealPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const user = await requireUser();
+  const { user, scope } = await requireScope();
   const deal = await db.deal.findFirst({
-    where: { id, companyId: user.companyId },
+    where: { ...scope.deal(), id },
     include: {
       contact: true,
       pipeline: { include: { stages: { orderBy: { position: "asc" } } } },
       products: { include: { product: true } },
       tasks: { include: { assignee: true }, orderBy: [{ doneAt: { sort: "asc", nulls: "first" } }, { dueAt: "asc" }] },
       activities: { include: { user: true }, orderBy: { createdAt: "desc" } },
+      leadSource: true,
+      assignments: { include: { user: true }, orderBy: { createdAt: "desc" }, take: 1 },
+      proposals: { orderBy: { createdAt: "desc" } },
+      visits: { include: { contact: true, user: { select: { name: true } } }, orderBy: { startsAt: "asc" } },
     },
   });
   if (!deal) notFound();
-  const [members, products] = await Promise.all([
+  const [members, products, templates] = await Promise.all([
     listMembers(user.companyId),
     db.product.findMany({ where: { companyId: user.companyId }, orderBy: { name: "asc" } }),
+    db.documentTemplate.findMany({ where: { companyId: user.companyId }, orderBy: { name: "asc" } }),
   ]);
+  const lastOffer = deal.assignments[0];
+  const minutesToContact = deal.firstContactAt ? Math.round((deal.firstContactAt.getTime() - deal.createdAt.getTime()) / 60_000) : null;
 
   return (
     <div className="space-y-4">
@@ -136,6 +147,44 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           </section>
 
           <section className="card space-y-3">
+            <h2 className="font-semibold">Propostas e contratos</h2>
+            {deal.proposals.length > 0 && (
+              <ul className="divide-y divide-slate-100 text-sm">
+                {deal.proposals.map((p) => (
+                  <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                    <Link className="font-medium text-brand-700 hover:underline" href={`/proposals/${p.id}`}>{p.title}</Link>
+                    <span className="flex items-center gap-2">
+                      {formatMoney(p.total)}
+                      <span className={`rounded px-1.5 py-0.5 text-xs ${PROPOSAL_STATUS_STYLE[p.status]}`}>{PROPOSAL_STATUS_LABEL[p.status]}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <form action={createProposal.bind(null, deal.id)} className="flex flex-wrap gap-2">
+              <select className="input max-w-sm" name="template">
+                {templates.map((t) => (
+                  <option key={t.id} value={`t:${t.id}`}>{KIND_LABEL[t.kind]}: {t.name}</option>
+                ))}
+                {DEFAULT_TEMPLATES.map((t, i) => (
+                  <option key={i} value={`d:${i}`}>{KIND_LABEL[t.kind]}: {t.name} (modelo pronto)</option>
+                ))}
+              </select>
+              <button className="btn-secondary">Gerar documento</button>
+            </form>
+            <p className="text-xs text-slate-500">
+              O documento sai preenchido com o cliente, os produtos e o valor deste negócio. Crie seus modelos em{" "}
+              <Link className="text-brand-600" href="/settings#modelos">Configurações</Link>.
+            </p>
+          </section>
+
+          <section className="card space-y-3">
+            <h2 className="font-semibold">Visitas</h2>
+            <VisitForm hidden={{ dealId: deal.id }} members={members} />
+            <VisitList visits={deal.visits} />
+          </section>
+
+          <section className="card space-y-3">
             <h2 className="font-semibold">Tarefas</h2>
             <TaskForm action={createTask} members={members} hidden={{ dealId: deal.id }} />
             <TaskList tasks={deal.tasks} />
@@ -149,6 +198,22 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
             {deal.contact.phone && <p>{deal.contact.phone}</p>}
             {deal.contact.email && <p>{deal.contact.email}</p>}
           </section>
+          {(deal.leadSource || lastOffer) && (
+            <section className="card space-y-1 text-sm">
+              <h2 className="mb-2 font-semibold">Origem do lead</h2>
+              {deal.leadSource && <p>{deal.leadSource.name}{deal.campaign && ` · ${deal.campaign}`}</p>}
+              <p className="text-xs text-slate-500">Chegou em {formatDateTime(deal.createdAt)}</p>
+              {lastOffer && (
+                <p className="text-xs text-slate-500">
+                  Fila: {lastOffer.user.name} ·{" "}
+                  {{ PENDING: "aguardando aceite", ACCEPTED: "aceito", DECLINED: "recusado", EXPIRED: "expirou" }[lastOffer.status]}
+                </p>
+              )}
+              <p className="text-xs text-slate-500">
+                {minutesToContact === null ? "Ainda sem primeiro contato" : `Primeiro contato em ${minutesToContact} min`}
+              </p>
+            </section>
+          )}
           <section className="card space-y-3">
             <h2 className="font-semibold">Histórico</h2>
             <form action={addDealNote.bind(null, deal.id)} className="space-y-2">
