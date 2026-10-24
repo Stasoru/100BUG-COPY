@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { PageHeader } from "@/components/page-header";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { DEFAULT_TEMPLATES, KIND_LABEL, PLACEHOLDERS } from "@/lib/documents";
 import { formatMoney } from "@/lib/format";
 import { listMembers } from "@/lib/members";
 import {
@@ -12,8 +13,10 @@ import {
   deleteChannel,
   deleteProduct,
   deleteTeam,
+  deleteTemplate,
   removeMember,
   renameCompany,
+  saveTemplate,
   updateMember,
   updateProfile,
 } from "./actions";
@@ -42,11 +45,12 @@ export default async function SettingsPage() {
       </div>
     );
   }
-  const [members, teams, products, channels] = await Promise.all([
+  const [members, teams, products, channels, templates] = await Promise.all([
     listMembers(user.companyId),
     db.team.findMany({ where: { companyId: user.companyId }, orderBy: { name: "asc" } }),
     db.product.findMany({ where: { companyId: user.companyId }, orderBy: { name: "asc" } }),
     db.channel.findMany({ where: { companyId: user.companyId }, orderBy: { createdAt: "asc" } }),
+    db.documentTemplate.findMany({ where: { companyId: user.companyId }, orderBy: { name: "asc" } }),
   ]);
   const h = await headers();
   const origin = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`;
@@ -175,7 +179,50 @@ export default async function SettingsPage() {
             <button className="btn">Conectar WhatsApp</button>
           </form>
         </section>
+        <section id="modelos" className="card space-y-3 lg:col-span-2">
+          <h2 className="font-semibold">Modelos de proposta e contrato</h2>
+          <p className="text-xs text-slate-500">
+            Escreva o texto e use os campos abaixo entre chaves duplas. Eles são preenchidos com os dados do negócio quando o documento é
+            gerado.
+          </p>
+          <ul className="flex flex-wrap gap-2 text-xs">
+            {Object.entries(PLACEHOLDERS).map(([key, label]) => (
+              <li key={key} className="rounded bg-slate-100 px-2 py-1" title={label}>
+                <code>{`{{${key}}}`}</code> <span className="text-slate-500">{label}</span>
+              </li>
+            ))}
+          </ul>
+          {templates.map((t) => (
+            <details key={t.id} className="rounded border border-slate-200 p-2">
+              <summary className="cursor-pointer text-sm font-medium">{KIND_LABEL[t.kind]}: {t.name}</summary>
+              <TemplateForm action={saveTemplate.bind(null, t.id)} template={t} />
+              <form action={deleteTemplate.bind(null, t.id)} className="mt-2">
+                <button className="text-xs text-red-600 hover:underline">excluir modelo</button>
+              </form>
+            </details>
+          ))}
+          <details className="rounded border border-dashed border-slate-300 p-2">
+            <summary className="cursor-pointer text-sm font-medium">Novo modelo</summary>
+            <TemplateForm action={saveTemplate.bind(null, null)} template={DEFAULT_TEMPLATES[0]} />
+          </details>
+        </section>
       </div>
     </div>
+  );
+}
+
+function TemplateForm({ action, template }: { action: (form: FormData) => Promise<void>; template: { kind: "PROPOSAL" | "CONTRACT"; name: string; body: string } }) {
+  return (
+    <form action={action} className="mt-3 space-y-2">
+      <div className="flex flex-wrap gap-2">
+        <select className="input w-40" name="kind" defaultValue={template.kind}>
+          <option value="PROPOSAL">Proposta</option>
+          <option value="CONTRACT">Contrato</option>
+        </select>
+        <input className="input max-w-sm" name="name" defaultValue={template.name} required />
+      </div>
+      <textarea className="input font-mono" name="body" rows={14} defaultValue={template.body} required />
+      <button className="btn-secondary">Salvar modelo</button>
+    </form>
   );
 }

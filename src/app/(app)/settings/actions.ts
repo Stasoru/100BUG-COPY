@@ -120,3 +120,22 @@ export async function deleteChannel(channelId: string) {
   await db.channel.deleteMany({ where: { id: channelId, companyId: user.companyId } });
   revalidatePath("/settings");
 }
+
+// ---------- Proposal and contract templates ----------
+
+export async function saveTemplate(templateId: string | null, form: FormData) {
+  const user = await requireAdmin();
+  const name = formString(form, "name");
+  const body = String(form.get("body") ?? "").trim();
+  const kind = formString(form, "kind") === "CONTRACT" ? "CONTRACT" : "PROPOSAL";
+  if (!name || !body) throw new Error("Informe o nome e o texto do modelo");
+  if (templateId) await db.documentTemplate.updateMany({ where: { id: templateId, companyId: user.companyId }, data: { name, body, kind } });
+  else await db.documentTemplate.create({ data: { companyId: user.companyId, name, body, kind } });
+  revalidatePath("/settings");
+}
+
+export async function deleteTemplate(templateId: string) {
+  const user = await requireAdmin();
+  await db.documentTemplate.deleteMany({ where: { id: templateId, companyId: user.companyId } });
+  revalidatePath("/settings");
+}
