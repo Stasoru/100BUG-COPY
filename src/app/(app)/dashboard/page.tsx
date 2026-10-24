@@ -104,13 +104,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <h2 className="mb-3 font-semibold">Negócios abertos por etapa</h2>
         <ul className="space-y-2">
           {byStage.map((st) => (
-            <li key={st.name} className="grid grid-cols-[8rem_1fr_auto] items-center gap-3 text-sm">
+            <li key={st.name} className="grid grid-cols-[6rem_1fr_auto] items-center sm:grid-cols-[8rem_1fr_auto] gap-3 text-sm">
               <span className="truncate">{st.name}</span>
               <span className="h-5 rounded bg-slate-100">
                 <span className="block h-5 rounded bg-brand-500" style={{ width: `${(st.count / maxStage) * 100}%` }} />
               </span>
-              <span className="w-56 text-right text-xs text-slate-600">
-                {st.count} · {formatMoney(st.value)} · {st.avgDays.toFixed(1)}d em média
+              <span className="text-right text-xs text-slate-600 sm:w-56">
+                {st.count}
+                <span className="hidden sm:inline"> · {formatMoney(st.value)} · {st.avgDays.toFixed(1)}d em média</span>
               </span>
             </li>
           ))}

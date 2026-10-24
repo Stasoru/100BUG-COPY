@@ -8,7 +8,7 @@ export function NavLink({ href, children }: { href: string; children: React.Reac
   return (
     <Link
       href={href}
-      className={`block rounded-md px-3 py-2 text-sm font-medium ${active ? "bg-brand-600 text-white" : "text-slate-300 hover:bg-slate-800 hover:text-white"}`}
+      className={`block whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium ${active ? "bg-brand-600 text-white" : "text-slate-300 hover:bg-slate-800 hover:text-white"}`}
     >
       {children}
     </Link>

@@ -46,7 +46,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             </NavLink>
           ))}
         </nav>
-        <div className="mt-auto hidden border-t border-slate-800 pt-3 md:block">
+        <div className="mt-2 flex items-center gap-1 border-t border-slate-800 pt-2 md:mt-auto md:block md:pt-3">
           <p className="truncate px-3 text-sm text-slate-300">{user.name}</p>
           <Link href="/companies" className="block px-3 py-1 text-xs text-slate-400 hover:text-white">Minhas empresas</Link>
           <form action={logout}>
