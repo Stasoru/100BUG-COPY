@@ -30,7 +30,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
       <aside className="flex shrink-0 flex-col bg-slate-900 p-3 print:hidden md:w-56">
-        <p className="px-3 py-2 text-lg font-bold text-white">{APP_NAME}</p>
+        <p className="px-3 py-2 text-lg font-bold text-black">{APP_NAME}</p>
         {companies.length > 1 ? (
           <CompanySwitcher current={user.companyId} companies={companies.map((m) => m.company)} />
         ) : (
