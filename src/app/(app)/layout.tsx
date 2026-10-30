@@ -28,9 +28,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     db.leadAssignment.count({ where: { companyId: user.companyId, userId: user.userId, status: "PENDING" } }),
   ]);
   return (
-    <div className="flex min-h-screen flex-col md:flex-row">
-      <aside className="flex shrink-0 flex-col bg-slate-900 p-3 print:hidden md:w-56">
-        <p className="px-3 py-2 text-lg font-bold text-black">{APP_NAME}</p>
+    <div className="flex min-h-screen flex-col md:flex-row bg-slate-950 text-slate-100">
+      <aside className="flex shrink-0 flex-col bg-slate-900 border-r border-slate-800 p-3 print:hidden md:w-56">
+        <p className="px-3 py-2 text-lg font-bold text-white">{APP_NAME}</p>
         {companies.length > 1 ? (
           <CompanySwitcher current={user.companyId} companies={companies.map((m) => m.company)} />
         ) : (
@@ -54,7 +54,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </form>
         </div>
       </aside>
-      <main className="min-w-0 flex-1 p-4 md:p-6 print:p-0">{children}</main>
+      <main className="min-w-0 flex-1 p-4 md:p-6 print:p-0 bg-slate-950 text-slate-100">{children}</main>
     </div>
   );
 }
